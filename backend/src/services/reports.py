@@ -29,6 +29,6 @@ def deliver(db, report):
     delivery.filename=f'report-{report.id}-delivery-{delivery.id}.csv'
     os.makedirs(ARTIFACT_DIR,exist_ok=True)
     with open(os.path.join(ARTIFACT_DIR,delivery.filename),'wb') as f:f.write(data)
-    with open(os.path.join(ARTIFACT_DIR,delivery.filename+'.json'),'w') as f: json.dump({'job':j.name,'params':j.params,'result':j.result,'checksum':delivery.checksum},f,ensure_ascii=False,allow_nan=False)
+    with open(os.path.join(ARTIFACT_DIR,delivery.filename+'.json'),'w') as f: json.dump({'job':j.name,'params':j.params,'unit_basis':j.unit_basis,'result':j.result,'checksum':delivery.checksum},f,ensure_ascii=False,allow_nan=False)
     report.next_run=time.time()+report.interval_seconds
     return delivery

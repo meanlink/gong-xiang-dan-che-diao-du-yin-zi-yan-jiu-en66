@@ -3,10 +3,13 @@ from sqlalchemy import select, func
 from src.config.database import Session
 from migrations.initial import migrate
 from src.models import User, Dataset, Job, Report, Delivery, Audit
+from src.services import units
 from src.services.business import metadata, seed_records, analyze
 from src.services.reports import deliver
 from src.utils.security import hash_password
 from src.utils.serialization import checksum
+
+
 def seed():
     migrate()
     with Session() as db:
@@ -19,14 +22,27 @@ def seed():
         d=db.scalar(select(Dataset).where(Dataset.name==m['dataset_name']))
         if not d:
             rows=seed_records()
-            d=Dataset(name=m['dataset_name'],source=m['short']+'-202611.csv',records=rows,checksum=checksum(rows),created_at=time.time())
+            # 演示批次明确声明为半小时人数；原值保留，研究口径写入 research_records。
+            d=Dataset(name=m['dataset_name'],source=m['short']+'-202611.csv',records=rows,
+                      checksum=checksum(rows),unit=units.COUNT_PER_HALF_HOUR,
+                      research_records=units.convert_records(rows,units.COUNT_PER_HALF_HOUR),
+                      migration_status='converted',created_at=time.time())
             db.add(d); db.flush()
         if not db.scalar(select(Job).where(Job.name=='基线复核 · '+m['name'])):
             params={p['key']:p['default'] for p in m.get('parameters',[])}
-            result=analyze(d.records,params)
+            samples=d.research_records or units.convert_records(d.records,d.unit or '')
+            result=analyze(samples,params)
             json.dumps(result,ensure_ascii=False,allow_nan=False)
             admin=db.scalar(select(User).where(User.role=='admin'))
-            j=Job(name='基线复核 · '+m['name'],dataset_id=d.id,params=params,status='completed',result=result,created_by=admin.id,created_at=time.time()-3600,finished_at=time.time()-3595,approved=True)
+            j=Job(name='基线复核 · '+m['name'],dataset_id=d.id,params=params,status='completed',
+                  result=result,sample_records=samples,
+                  unit_basis={'declared':d.unit,'effective':units.effective_unit(d.unit),
+                              'label':units.label_for(d.unit),'factor':units.factor_for(d.unit),
+                              'research_unit':units.RESEARCH_UNIT,
+                              'research_label':units.label_for(units.RESEARCH_UNIT),
+                              'source':'batch_declared','batch_research_state':d.migration_status,
+                              'batch_records':len(d.records),'sample_rows':len(samples)},
+                  created_by=admin.id,created_at=time.time()-3600,finished_at=time.time()-3595,approved=True)
             db.add(j);db.flush()
             r=Report(name='每日业务复核简报',job_id=j.id,destination='业务复核组 · 本地收件箱',interval_seconds=86400,next_run=time.time()+86400,enabled=True)
             db.add(r);db.flush();deliver(db,r)

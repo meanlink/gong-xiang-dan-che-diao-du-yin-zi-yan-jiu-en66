@@ -4,7 +4,8 @@ from sqlalchemy import select
 from redis import Redis
 from src.config.database import Session
 from src.config.settings import REDIS_URL
-from src.models import Job, Dataset, Report
+from src.models import Job, Report
+from src.services import migrations
 from src.services.business import analyze
 from src.services.reports import deliver
 from src.services.audit import record
@@ -15,11 +16,12 @@ def execute(job_id):
         if not j or j.status!='queued':return
         j.status='running'; db.commit()
         try:
-            d=db.get(Dataset,j.dataset_id)
-            result=analyze(d.records,j.params)
+            # 计算只读受理时封存的样本，不随迁移改写。
+            samples=j.sample_records or []
+            result=analyze(samples,j.params)
             json.dumps(result,allow_nan=False)
             j.result=result;j.status='completed';j.finished_at=time.time()
-            record(db,'worker','job.completed',{'id':j.id})
+            record(db,'worker','job.completed',{'id':j.id,'unit_basis':j.unit_basis})
         except Exception as e:
             logging.exception('Analysis failed')
             j.status='failed';j.error=str(e)[:990];j.finished_at=time.time()
@@ -29,6 +31,10 @@ def tick():
     with Session() as db:
         queued=list(db.scalars(select(Job.id).where(Job.status=='queued').limit(3)))
     for job_id in queued:execute(job_id)
+    try:
+        migrations.tick()
+    except Exception:
+        logging.exception('Unit migration retry')
     with Session() as db:
         for r in db.scalars(select(Report).where(Report.enabled==True,Report.next_run<=time.time())):
             d=deliver(db,r)
@@ -40,6 +46,10 @@ def main():
     with Session() as db:
         for j in db.scalars(select(Job).where(Job.status=='running')):
             j.status='queued';record(db,'worker','job.recovered',{'id':j.id})
+        db.commit()
+    # 迁移中断恢复：已完成批次跳过，处理中的批次放回待迁。
+    with Session() as db:
+        migrations.recover(db)
         db.commit()
     while True:
         Path('/tmp/heartbeat').touch()

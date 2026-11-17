@@ -3,6 +3,7 @@ import math
 import random
 import numpy as np
 from scipy import stats
+from src.services import units
 
 
 def metadata():
@@ -12,6 +13,9 @@ def metadata():
             "columns": [{"key": "station", "label": "站点", "type": "string"}, {"key": "period", "label": "时段序号", "type": "number"}, {"key": "commute", "label": "通勤指数", "type": "number"}, {"key": "arrivals", "label": "附近到达客流", "type": "number"}, {"key": "demand", "label": "借车需求", "type": "number"}],
             "parameters": [{"key": "lag", "label": "需求滞后（半小时）", "type": "select", "default": "1", "options": [{"value": str(i), "label": f"{i} 个时段"} for i in range(4)]}, {"key": "station", "label": "分析站点", "type": "select", "default": "全部", "options": [{"value": n, "label": n} for n in ["全部", "科技园", "江湾口", "书院路"]]}],
             "workbench_title": "调度先行因子研究", "action_label": "计算偏相关与提前量", "unit": "人次", "accent": "oklch(49% 0.12 125)", "style": "transit",
+            "research_unit": units.RESEARCH_UNIT, "research_unit_label": units.label_for(units.RESEARCH_UNIT),
+            "unit_options": list(units.UNIT_OPTIONS),
+            "unit_note": "供稿方按每小时率报数时选择“人次 / 小时”，研究统一换算成半小时人数；未声明单位按人数处理，未知单位拒收。",
             "seed_story": ["07:30 导入 BL_station_observation.csv，共 288 条观测。", "07:45 核对科技园、江湾口、书院路各 96 个时段。", "08:00 研究员选择滞后 1 个半小时。", "08:05 执行分析，比较原始相关与控制通勤后的偏相关。", "08:20 查看各站点配对数量，确认无跨站点错配。", "08:40 改为滞后 0，观察同步与提前关系变化。", "09:00 导出因子简报，安排一周观察性试点。"],
             "method": "按站点、period 排序，客流 X(t) 与需求 Y(t+lag) 配对；将 X、Y 分别对目标时段通勤指数做含截距 OLS 残差化，残差 Pearson r 为偏相关；p 值用自由度 n−3 的双侧 t 近似。",
             "limitations": ["观察相关不证明因果", "时序自相关可能低估 p 值", "通勤指数仅控制一个已观测混杂因素"]}
